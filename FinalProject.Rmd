@@ -1,0 +1,1294 @@
+---
+title: "R Notebook"
+output:
+  word_document: default
+  html_notebook: default
+---
+
+
+```{r}
+# install.packages("Lahman")
+
+# Import the dataframes
+data("People", package="Lahman")
+data("Salaries", package="Lahman")
+data("Pitching", package="Lahman")
+```
+
+```{r}
+# Merge the dataframes and filter it for years 2003-2016
+peop <- People[c("playerID", "weight", "height", "debut")]
+sal <- Salaries[c("playerID", "yearID", "salary")]
+yearRange <- c(2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014, 2015, 2016)
+
+sal1016 <- sal[sal$"yearID" %in% yearRange,]
+
+peopsal <- merge(peop, sal1016, by="playerID")
+all <- merge(peopsal, Pitching, by=c("playerID", "yearID"))
+```
+
+```{r}
+# Normalize the salaries by accounting for inflation between years
+# CPI 1982-84 = 100; data collected from https://data.bls.gov/pdq/SurveyOutputServlet
+# pct_change measures percent change in CPI between each year (2013-2016) and 2016
+cpi = c(184.0, 188.9, 195.3, 201.6, 207.342, 215.303, 214.537, 218.056, 224.939, 229.594, 232.957, 236.736, 237.017, 240.007)
+pct_change = c()
+for (i in 1:length(cpi)) {
+  pct_change = c(pct_change, (cpi[14] - cpi[i])/cpi[i]*100)
+}
+pct_change = (pct_change * 0.01) + 1
+```
+
+
+```{r}
+# Apply the percent changes in inflation to the player salaries
+for (i in 1:nrow(all)) {
+  if (all$yearID[i] == 2003) {
+    all$salary_adj[i] = all$salary[i] * pct_change[1]
+  }
+  if (all$yearID[i] == 2004) {
+    all$salary_adj[i] = all$salary[i] * pct_change[2]
+  }
+  if (all$yearID[i] == 2005) {
+    all$salary_adj[i] = all$salary[i] * pct_change[3]
+  }
+  if (all$yearID[i] == 2006) {
+    all$salary_adj[i] = all$salary[i] * pct_change[4]
+  }
+  if (all$yearID[i] == 2007) {
+    all$salary_adj[i] = all$salary[i] * pct_change[5]
+  }
+  if (all$yearID[i] == 2008) {
+    all$salary_adj[i] = all$salary[i] * pct_change[6]
+  }
+  if (all$yearID[i] == 2009) {
+    all$salary_adj[i] = all$salary[i] * pct_change[7]
+  }
+  if (all$yearID[i] == 2010) {
+    all$salary_adj[i] = all$salary[i] * pct_change[8]
+  }
+  if (all$yearID[i] == 2011) {
+    all$salary_adj[i] = all$salary[i] * pct_change[9]
+  }
+  if (all$yearID[i] == 2012) {
+    all$salary_adj[i] = all$salary[i] * pct_change[10]
+  }
+  if (all$yearID[i] == 2013) {
+    all$salary_adj[i] = all$salary[i] * pct_change[11]
+  }
+  if (all$yearID[i] == 2014) {
+    all$salary_adj[i] = all$salary[i] * pct_change[12]
+  }
+  if (all$yearID[i] == 2015) {
+    all$salary_adj[i] = all$salary[i] * pct_change[13]
+  }
+  if (all$yearID[i] == 2016) {
+    all$salary_adj[i] = all$salary[i] * pct_change[14]
+  }
+}
+all$salary_adj = as.integer(all$salary_adj)
+```
+
+
+```{r}
+# Split the adjusted salaries into three quantiles
+quantile(all$salary_adj, probs=c(0, 0.33, 0.66, 1))
+quant33 <- nrow(all[all$salary_adj<=521496,])
+quant66 <- nrow(all[all$salary_adj<=2999630 & all$salary_adj>521496,])
+quant100 <- nrow(all[all$salary_adj<=33000000 & all$salary_adj>2999630,])
+
+# Confirm we did not miss any of the observations
+nrow(all[all$salary_adj<=521496,])+nrow(all[all$salary_adj<=2999630 & all$salary_adj>521496,])+nrow(all[all$salary_adj<=33000000 & all$salary_adj>2999630,])
+
+# Create a new dataframe that contains the information classifying each salary into 1, 2, or 3 based on quantity
+data <- as.data.frame(all)
+
+for (i in 1:nrow(data)) {
+  if (data$salary_adj[i] <= 521496) {
+    data$class[i] = 1
+  }
+  if (data$salary_adj[i] <= 2999630 & data$salary_adj[i] > 521496) {
+    data$class[i] = 2
+  }
+   if (data$salary_adj[i] <= 33000000 & data$salary_adj[i] > 2999630) {
+    data$class[i] = 3
+  }
+}
+```
+
+
+```{r}
+# Check for missing values
+apply(is.na(data), 2, which)
+
+# Remove the 3 cases that contain missing values
+data = na.omit(data)
+
+# Check for missing values again
+sum(is.na(data))
+```
+
+
+```{r}
+# remove the salary and salary_adj variables and just leave the classes
+salary = as.vector(data$salary)
+data$salary = NULL
+salary_adj = as.vector(data$salary_adj)
+data$salary_adj = NULL
+
+# Convert class to a factor
+data$class <- as.factor(data$class)
+class_vec = as.vector(data$class)
+
+# Obtain a vector of playerID
+playerID = as.vector(data$playerID)
+
+# Create a list of the variables we want to use as features
+vars <- c("weight", "height", "stint", "W", "L", "G", "GS", "CG", "SHO", "SV", "IPouts", "H", "ER", "HR", "BB", "SO", "BAOpp", "ERA", "IBB", "WP", "HBP", "BK", "BFP", "GF", "R", "SH", "SF", "GIDP", "class")
+
+# Filter the data to only hold the previously identified features
+data <- data[,vars]
+
+# Confirm we have all of correct vars
+vars %in% colnames(data)
+```
+
+There are now a total of 6104 observations. Time to standardize the data.
+
+### Q1
+
+```{r}
+SDATA <- data.frame(scale(data[,-29]))
+# SDATA$class <- class_vec
+```
+
+```{r}
+# PCA
+SDATA.cor <- cor(SDATA)
+SDATA.eig <- eigen(SDATA.cor)
+
+# Variance explained
+PVE <- SDATA.eig$values/sum(SDATA.eig$values)
+
+# Plot PVE(r) vs r
+it = 0
+PVE.sum <- c()
+for (i in 1:length(PVE)){
+  PVE.sum <- sum(PVE[1:i])
+  it = it + 1
+  if (PVE.sum >= .95){
+    break
+  }
+}
+
+cumPVE <- plot(cumsum(PVE),pch=19, cex=.6, ylab = "Cumulative PVE", xlab = "r", main = "PVE(r) vs r")
+```
+95% of the variance is explained by the first 15 principle componenets.
+
+```{r}
+plot(SDATA.eig$values, pch=20, cex=.75, xlab="r", ylab="Lr", main="Lr vs r")
+format(SDATA.eig$values[1:3], scientific=FALSE)
+PVE[1:3]
+```
+The plot of eigenvalues as a function of r. The first three eigenvalues are 13.371663, 2.912144, and 1.594754. They explain  47.8%, 10.4%, and 5.7% of the the total variance respectively.
+
+```{r}
+W <- SDATA.eig$vectors[,1:15]
+PrinComp <- as.data.frame(as.matrix(SDATA) %*% W)
+PrinComp$class <- class_vec
+
+noCL1 <- PrinComp[PrinComp$class==2 | PrinComp$class==3,]
+noCL2 <- PrinComp[PrinComp$class==1 | PrinComp$class==3,]
+noCL3 <- PrinComp[PrinComp$class==1 | PrinComp$class==2,]
+
+library(rgl)
+plot3d(noCL1[,1], noCL1[,2], noCL1[,3], col=noCL1$class)
+plot3d(noCL2[,1], noCL2[,2], noCL2[,3], col=noCL2$class)
+plot3d(noCL3[,1], noCL3[,2], noCL3[,3], col=noCL3$class)
+```
+The three pairs of classes do not show any distinguishable evidence of seperability.
+
+### Q2
+```{r}
+k1_start <- Sys.time()
+k1 <- kmeans(SDATA, centers=1, nstart=50)
+k1_end <- Sys.time()
+k2_start <- Sys.time()
+k2 <- kmeans(SDATA, centers=2, nstart=50)
+k2_end <- Sys.time()
+k3_start <- Sys.time()
+k3 <- kmeans(SDATA, centers=3, nstart=50)
+k3_end <- Sys.time()
+k4_start <- Sys.time()
+k4 <- kmeans(SDATA, centers=4, nstart=50)
+k4_end <- Sys.time()
+k5_start <- Sys.time()
+k5 <- kmeans(SDATA, centers=5, nstart=50)
+k5_end <- Sys.time()
+k6_start <- Sys.time()
+k6 <- kmeans(SDATA, centers=6, nstart=50)
+k6_end <- Sys.time()
+k7_start <- Sys.time()
+k7 <- kmeans(SDATA, centers=7, nstart=50)
+k7_end <- Sys.time()
+k8_start <- Sys.time()
+k8 <- kmeans(SDATA, centers=8, nstart=50)
+k8_end <- Sys.time()
+k9_start <- Sys.time()
+k9 <- kmeans(SDATA, centers=9, nstart=50)
+k9_end <- Sys.time()
+k10_start <- Sys.time()
+k10 <- kmeans(SDATA, centers=10, nstart=50)
+k10_end <- Sys.time()
+
+# Compute times
+k1_end - k1_start
+k2_end - k2_start
+k3_end - k3_start
+k4_end - k4_start
+k5_end - k5_start
+k6_end - k6_start
+k7_end - k7_start
+k8_end - k8_start
+k9_end - k9_start
+k10_end - k10_start
+
+var1 <- k1$betweenss/k1$totss
+var2 <- k2$betweenss/k2$totss
+var3 <- k3$betweenss/k3$totss
+var4 <- k4$betweenss/k4$totss
+var5 <- k5$betweenss/k5$totss
+var6 <- k6$betweenss/k6$totss
+var7 <- k7$betweenss/k7$totss
+var8 <- k8$betweenss/k8$totss
+var9 <- k9$betweenss/k9$totss
+var10 <- k10$betweenss/k10$totss
+
+var_values <- c(var1,var2,var3,var4,var5,var6,var7,var8,var9,var10)
+k_values <- 1:10
+plot(k_values, 1-var_values, type="b", pch = 19, frame = FALSE, xlab="Number of clusters K", ylab="Reduction of variance", main = "Reduction of variance vs K")
+```
+Best K = 8.
+
+### Q3
+```{r}
+# Obtain cluster centers
+k8$centers
+
+# Obtain cluster sizes
+k8$size
+
+# Obtain dispersion
+k8$withinss
+```
+
+# Freqency table of classes within each cluster
+
+```{r}
+# Create a frequency table of all clusters and classes
+library(plyr)
+
+cluster_vals = c()
+for (i in 1:length(k8$cluster)) {
+  cluster_vals <- c(cluster_vals, k8$cluster[[i]])
+}
+
+clust_vs_class = cbind(cluster_vals, class_vec)
+
+FREQ <- count(clust_vs_class, vars = c("cluster_vals", "class_vec"))
+names(FREQ) <- c("Cluster", "Class", "Freq")
+
+gini_per_clust <- c()
+i=1
+while (i <=  nrow(FREQ)) {
+  class1 <- FREQ[i, 3]
+  class2 <- FREQ[i+1, 3]
+  class3 <- FREQ[i+2, 3]
+  total <- class1+class2+class3
+  class1_pct <- class1/total
+  class2_pct <- class2/total
+  class3_pct <- class3/total
+  gini <- class1_pct*(1-class1_pct) + class2_pct*(1-class2_pct) + class3_pct*(1 - class3_pct)
+  gini_per_clust <- c(gini_per_clust, gini)
+  i = i+3
+}
+```
+
+
+# Impurity calculation
+```{r}
+gini_impurity <- c()
+
+# k1 cluster values
+cluster_vals = c()
+for (i in 1:length(k1$cluster)) {
+  cluster_vals <- c(cluster_vals, k1$cluster[[i]])
+}
+
+clust_vs_class = cbind(cluster_vals, class_vec)
+
+FREQ <- count(clust_vs_class, vars = c("cluster_vals", "class_vec"))
+names(FREQ) <- c("Cluster", "Class", "Freq")
+
+gini_per_clust <- c()
+i=1
+while (i <=  nrow(FREQ)) {
+  class1 <- FREQ[i, 3]
+  class2 <- FREQ[i+1, 3]
+  class3 <- FREQ[i+2, 3]
+  total <- class1+class2+class3
+  class1_pct <- class1/total
+  class2_pct <- class2/total
+  class3_pct <- class3/total
+  gini <- class1_pct*(1-class1_pct) + class2_pct*(1-class2_pct) + class3_pct*(1 - class3_pct)
+  gini_per_clust <- c(gini_per_clust, gini)
+  i = i+3
+}
+gini_impurity <- c(gini_impurity, sum(gini_per_clust))
+
+#k2 cluster values
+cluster_vals = c()
+for (i in 1:length(k2$cluster)) {
+  cluster_vals <- c(cluster_vals, k2$cluster[[i]])
+}
+
+clust_vs_class = cbind(cluster_vals, class_vec)
+
+FREQ <- count(clust_vs_class, vars = c("cluster_vals", "class_vec"))
+names(FREQ) <- c("Cluster", "Class", "Freq")
+
+gini_per_clust <- c()
+i=1
+while (i <=  nrow(FREQ)) {
+  class1 <- FREQ[i, 3]
+  class2 <- FREQ[i+1, 3]
+  class3 <- FREQ[i+2, 3]
+  total <- class1+class2+class3
+  class1_pct <- class1/total
+  class2_pct <- class2/total
+  class3_pct <- class3/total
+  gini <- class1_pct*(1-class1_pct) + class2_pct*(1-class2_pct) + class3_pct*(1 - class3_pct)
+  gini_per_clust <- c(gini_per_clust, gini)
+  i = i+3
+}
+gini_impurity <- c(gini_impurity, sum(gini_per_clust))
+
+#k3 cluster values 
+cluster_vals = c()
+for (i in 1:length(k3$cluster)) {
+  cluster_vals <- c(cluster_vals, k3$cluster[[i]])
+}
+
+clust_vs_class = cbind(cluster_vals, class_vec)
+
+FREQ <- count(clust_vs_class, vars = c("cluster_vals", "class_vec"))
+names(FREQ) <- c("Cluster", "Class", "Freq")
+
+gini_per_clust <- c()
+i=1
+while (i <=  nrow(FREQ)) {
+  class1 <- FREQ[i, 3]
+  class2 <- FREQ[i+1, 3]
+  class3 <- FREQ[i+2, 3]
+  total <- class1+class2+class3
+  class1_pct <- class1/total
+  class2_pct <- class2/total
+  class3_pct <- class3/total
+  gini <- class1_pct*(1-class1_pct) + class2_pct*(1-class2_pct) + class3_pct*(1 - class3_pct)
+  gini_per_clust <- c(gini_per_clust, gini)
+  i = i+3
+}
+gini_impurity <- c(gini_impurity, sum(gini_per_clust))
+
+#k4 cluster values 
+cluster_vals = c()
+for (i in 1:length(k4$cluster)) {
+  cluster_vals <- c(cluster_vals, k4$cluster[[i]])
+}
+
+clust_vs_class = cbind(cluster_vals, class_vec)
+
+FREQ <- count(clust_vs_class, vars = c("cluster_vals", "class_vec"))
+names(FREQ) <- c("Cluster", "Class", "Freq")
+
+gini_per_clust <- c()
+i=1
+while (i <=  nrow(FREQ)) {
+  class1 <- FREQ[i, 3]
+  class2 <- FREQ[i+1, 3]
+  class3 <- FREQ[i+2, 3]
+  total <- class1+class2+class3
+  class1_pct <- class1/total
+  class2_pct <- class2/total
+  class3_pct <- class3/total
+  gini <- class1_pct*(1-class1_pct) + class2_pct*(1-class2_pct) + class3_pct*(1 - class3_pct)
+  gini_per_clust <- c(gini_per_clust, gini)
+  i = i+3
+}
+gini_impurity <- c(gini_impurity, sum(gini_per_clust))
+
+#k5 cluster values 
+cluster_vals = c()
+for (i in 1:length(k5$cluster)) {
+  cluster_vals <- c(cluster_vals, k5$cluster[[i]])
+}
+
+clust_vs_class = cbind(cluster_vals, class_vec)
+
+FREQ <- count(clust_vs_class, vars = c("cluster_vals", "class_vec"))
+names(FREQ) <- c("Cluster", "Class", "Freq")
+
+gini_per_clust <- c()
+i=1
+while (i <=  nrow(FREQ)) {
+  class1 <- FREQ[i, 3]
+  class2 <- FREQ[i+1, 3]
+  class3 <- FREQ[i+2, 3]
+  total <- class1+class2+class3
+  class1_pct <- class1/total
+  class2_pct <- class2/total
+  class3_pct <- class3/total
+  gini <- class1_pct*(1-class1_pct) + class2_pct*(1-class2_pct) + class3_pct*(1 - class3_pct)
+  gini_per_clust <- c(gini_per_clust, gini)
+  i = i+3
+}
+gini_impurity <- c(gini_impurity, sum(gini_per_clust))
+
+#k6 cluster values 
+cluster_vals = c()
+for (i in 1:length(k6$cluster)) {
+  cluster_vals <- c(cluster_vals, k6$cluster[[i]])
+}
+
+clust_vs_class = cbind(cluster_vals, class_vec)
+
+FREQ <- count(clust_vs_class, vars = c("cluster_vals", "class_vec"))
+names(FREQ) <- c("Cluster", "Class", "Freq")
+gini_per_clust <- c()
+i=1
+while (i <=  nrow(FREQ)) {
+  class1 <- FREQ[i, 3]
+  class2 <- FREQ[i+1, 3]
+  class3 <- FREQ[i+2, 3]
+  total <- class1+class2+class3
+  class1_pct <- class1/total
+  class2_pct <- class2/total
+  class3_pct <- class3/total
+  gini <- class1_pct*(1-class1_pct) + class2_pct*(1-class2_pct) + class3_pct*(1 - class3_pct)
+  gini_per_clust <- c(gini_per_clust, gini)
+  i = i+3
+}
+gini_impurity <- c(gini_impurity, sum(gini_per_clust))
+
+#k7 cluster values
+cluster_vals = c()
+for (i in 1:length(k7$cluster)) {
+  cluster_vals <- c(cluster_vals, k7$cluster[[i]])
+}
+
+clust_vs_class = cbind(cluster_vals, class_vec)
+
+FREQ <- count(clust_vs_class, vars = c("cluster_vals", "class_vec"))
+names(FREQ) <- c("Cluster", "Class", "Freq")
+gini_per_clust <- c()
+i=1
+while (i <=  nrow(FREQ)) {
+  class1 <- FREQ[i, 3]
+  class2 <- FREQ[i+1, 3]
+  class3 <- FREQ[i+2, 3]
+  total <- class1+class2+class3
+  class1_pct <- class1/total
+  class2_pct <- class2/total
+  class3_pct <- class3/total
+  gini <- class1_pct*(1-class1_pct) + class2_pct*(1-class2_pct) + class3_pct*(1 - class3_pct)
+  gini_per_clust <- c(gini_per_clust, gini)
+  i = i+3
+}
+gini_impurity <- c(gini_impurity, sum(gini_per_clust))
+
+#k8 cluster values
+cluster_vals = c()
+for (i in 1:length(k8$cluster)) {
+  cluster_vals <- c(cluster_vals, k8$cluster[[i]])
+}
+
+clust_vs_class = cbind(cluster_vals, class_vec)
+
+FREQ <- count(clust_vs_class, vars = c("cluster_vals", "class_vec"))
+names(FREQ) <- c("Cluster", "Class", "Freq")
+gini_per_clust <- c()
+i=1
+while (i <=  nrow(FREQ)) {
+  class1 <- FREQ[i, 3]
+  class2 <- FREQ[i+1, 3]
+  class3 <- FREQ[i+2, 3]
+  total <- class1+class2+class3
+  class1_pct <- class1/total
+  class2_pct <- class2/total
+  class3_pct <- class3/total
+  gini <- class1_pct*(1-class1_pct) + class2_pct*(1-class2_pct) + class3_pct*(1 - class3_pct)
+  gini_per_clust <- c(gini_per_clust, gini)
+  i = i+3
+}
+gini_impurity <- c(gini_impurity, sum(gini_per_clust))
+
+#k9 cluster values
+cluster_vals = c()
+for (i in 1:length(k9$cluster)) {
+  cluster_vals <- c(cluster_vals, k9$cluster[[i]])
+}
+
+clust_vs_class = cbind(cluster_vals, class_vec)
+
+FREQ <- count(clust_vs_class, vars = c("cluster_vals", "class_vec"))
+names(FREQ) <- c("Cluster", "Class", "Freq")
+gini_per_clust <- c()
+i=1
+while (i <=  nrow(FREQ)) {
+  class1 <- FREQ[i, 3]
+  class2 <- FREQ[i+1, 3]
+  class3 <- FREQ[i+2, 3]
+  total <- class1+class2+class3
+  class1_pct <- class1/total
+  class2_pct <- class2/total
+  class3_pct <- class3/total
+  gini <- class1_pct*(1-class1_pct) + class2_pct*(1-class2_pct) + class3_pct*(1 - class3_pct)
+  gini_per_clust <- c(gini_per_clust, gini)
+  i = i+3
+}
+gini_impurity <- c(gini_impurity, sum(gini_per_clust))
+
+#k10 cluster values
+cluster_vals = c()
+for (i in 1:length(k10$cluster)) {
+  cluster_vals <- c(cluster_vals, k10$cluster[[i]])
+}
+
+clust_vs_class = cbind(cluster_vals, class_vec)
+
+FREQ <- count(clust_vs_class, vars = c("cluster_vals", "class_vec"))
+names(FREQ) <- c("Cluster", "Class", "Freq")
+gini_per_clust <- c()
+i=1
+while (i <=  nrow(FREQ)) {
+  class1 <- FREQ[i, 3]
+  class2 <- FREQ[i+1, 3]
+  class3 <- FREQ[i+2, 3]
+  total <- class1+class2+class3
+  class1_pct <- class1/total
+  class2_pct <- class2/total
+  class3_pct <- class3/total
+  gini <- class1_pct*(1-class1_pct) + class2_pct*(1-class2_pct) + class3_pct*(1 - class3_pct)
+  gini_per_clust <- c(gini_per_clust, gini)
+  i = i+3
+}
+gini_impurity <- c(gini_impurity, sum(gini_per_clust))
+```
+
+# Plot impurity vs k
+```{r}
+plot(k_values, gini_impurity, type="b", pch = 19, frame = FALSE, xlab="Number of clusters K", ylab="Impurity (sum of gini)",xlim = c(0,10), ylim = c(0, 7), main = "Impurity vs K")
+```
+
+
+```{r}
+library(scales)
+
+class1 <- FREQ[1, 3]
+class2 <- FREQ[2, 3]
+class3 <- FREQ[3, 3]
+total <- class1+class2+class3
+class1_pct <- class1/total
+class2_pct <- class2/total
+class3_pct <- class3/total
+freq_ratio1 = data.frame(percent(c(class1_pct, class2_pct, class3_pct)), row.names = c("Class1", "Class2", "Class3"))
+names(freq_ratio1) <- "Ratio"
+
+class1 <- FREQ[4, 3]
+class2 <- FREQ[5, 3]
+class3 <- FREQ[6, 3]
+total <- class1+class2+class3
+class1_pct <- class1/total
+class2_pct <- class2/total
+class3_pct <- class3/total
+freq_ratio2 = data.frame(percent(c(class1_pct, class2_pct, class3_pct)), row.names = c("Class1", "Class2", "Class3"))
+names(freq_ratio2) <- "Ratio"
+
+class1 <- FREQ[7, 3]
+class2 <- FREQ[8, 3]
+class3 <- FREQ[9, 3]
+total <- class1+class2+class3
+class1_pct <- class1/total
+class2_pct <- class2/total
+class3_pct <- class3/total
+freq_ratio3 = data.frame(percent(c(class1_pct, class2_pct, class3_pct)), row.names = c("Class1", "Class2", "Class3"))
+names(freq_ratio3) <- "Ratio"
+
+class1 <- FREQ[10, 3]
+class2 <- FREQ[11, 3]
+class3 <- FREQ[12, 3]
+total <- class1+class2+class3
+class1_pct <- class1/total
+class2_pct <- class2/total
+class3_pct <- class3/total
+freq_ratio4 = data.frame(percent(c(class1_pct, class2_pct, class3_pct)), row.names = c("Class1", "Class2", "Class3"))
+names(freq_ratio4) <- "Ratio"
+
+class1 <- FREQ[13, 3]
+class2 <- FREQ[14, 3]
+class3 <- FREQ[15, 3]
+total <- class1+class2+class3
+class1_pct <- class1/total
+class2_pct <- class2/total
+class3_pct <- class3/total
+freq_ratio5 = data.frame(percent(c(class1_pct, class2_pct, class3_pct)), row.names = c("Class1", "Class2", "Class3"))
+names(freq_ratio5) <- "Ratio"
+
+class1 <- FREQ[16, 3]
+class2 <- FREQ[17, 3]
+class3 <- FREQ[18, 3]
+total <- class1+class2+class3
+class1_pct <- class1/total
+class2_pct <- class2/total
+class3_pct <- class3/total
+freq_ratio6 = data.frame(percent(c(class1_pct, class2_pct, class3_pct)), row.names = c("Class1", "Class2", "Class3"))
+names(freq_ratio6) <- "Ratio"
+
+class1 <- FREQ[19, 3]
+class2 <- FREQ[20, 3]
+class3 <- FREQ[21, 3]
+total <- class1+class2+class3
+class1_pct <- class1/total
+class2_pct <- class2/total
+class3_pct <- class3/total
+freq_ratio7 = data.frame(percent(c(class1_pct, class2_pct, class3_pct)), row.names = c("Class1", "Class2", "Class3"))
+names(freq_ratio7) <- "Ratio"
+
+class1 <- FREQ[22, 3]
+class2 <- FREQ[23, 3]
+class3 <- FREQ[24, 3]
+total <- class1+class2+class3
+class1_pct <- class1/total
+class2_pct <- class2/total
+class3_pct <- class3/total
+freq_ratio8 = data.frame(percent(c(class1_pct, class2_pct, class3_pct)), row.names = c("Class1", "Class2", "Class3"))
+names(freq_ratio8) <- "Ratio"
+```
+
+
+
+# Create 3D plots of clusters on first 3 eigenvectors
+```{r}
+library(rgl)
+clu_3d <- as.data.frame(as.matrix(k8$centers) %*% W)
+plot3d(clu_3d[,1], clu_3d[,2], clu_3d[,3])
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+### Q4
+```{r}
+# Obtain the training and testing data
+
+# First split the data into classes
+CL1 = as.data.frame(data[data$class == 1,])
+CL2 = as.data.frame(data[data$class == 2,])
+CL3 = as.data.frame(data[data$class == 3,])
+
+# Obtain train/test split
+trainCL1.index <- sample(1:nrow(CL1), 0.8 * nrow(CL1))
+testCL1.index <- setdiff(1:nrow(CL1), trainCL1.index)
+trainCL1 <- CL1[trainCL1.index,]
+testCL1 <- CL1[testCL1.index,]
+# train.labels1 <- class_vec[trainCL1.index]
+# test.labels1 <- class_vec[testCL1.index]
+train.labels1 <- rep(1, nrow(trainCL1))
+test.labels1 <- rep(2, nrow(testCL1))
+
+trainCL2.index <- sample(1:nrow(CL2), 0.8 * nrow(CL2))
+testCL2.index <- setdiff(1:nrow(CL2), trainCL2.index)
+trainCL2 <- CL2[trainCL2.index,]
+testCL2 <- CL2[testCL2.index,]
+# train.labels2 <- class_vec[trainCL2.index]
+# test.labels2 <- class_vec[testCL2.index]
+train.labels2 <- rep(2, nrow(trainCL2))
+test.labels2 <- rep(2, nrow(testCL2))
+
+trainCL3.index <- sample(1:nrow(CL3), 0.8 * nrow(CL3))
+testCL3.index <- setdiff(1:nrow(CL3), trainCL3.index)
+trainCL3 <- CL3[trainCL3.index,]
+testCL3 <- CL3[testCL3.index,]
+# train.labels3 <- class_vec[trainCL3.index + nrow(CL2) + nrow(CL1)]
+# test.labels3 <- class_vec[testCL3.index + nrow(CL2) + nrow(CL1)]
+train.labels3 <- rep(3, nrow(trainCL3))
+test.labels3 <- rep(3, nrow(testCL3))
+
+TRAIN <- rbind(trainCL1, trainCL2, trainCL3)
+TEST <- rbind(testCL1, testCL2, testCL3)
+train.labels <- c(train.labels1, train.labels2, train.labels3)
+test.labels <- c(test.labels1, test.labels2, test.labels3)
+
+TRAIN_y <- TRAIN$class
+TEST_y <- TEST$class
+
+TRAIN <- scale(TRAIN[,-29])
+TEST <- scale(TEST[,-29])
+
+TRAIN <- as.data.frame(TRAIN)
+TEST <- as.data.frame(TEST)
+
+TRAIN$class <- TRAIN_y
+TEST$class <- TEST_y
+
+```
+
+### Q5
+```{r}
+library(randomForest)
+rf100_start <- Sys.time()
+rf100 <- randomForest(TRAIN[,-29], TRAIN$class, ntry = 5, ntrees = 100)
+rf100_end <- Sys.time()
+rf200_start <- Sys.time()
+rf200 <- randomForest(TRAIN[,-29], TRAIN$class, ntry = 5, ntrees = 200)
+rf200_end <- Sys.time()
+rf300_start <- Sys.time()
+rf300 <- randomForest(TRAIN[,-29], TRAIN$class, ntry = 5, ntrees = 300)
+rf300_end <- Sys.time()
+rf400_start <- Sys.time()
+rf400 <- randomForest(TRAIN[,-29], TRAIN$class, ntry = 5, ntrees = 400)
+rf400_end <- Sys.time()
+
+rf100_end - rf100_start
+rf200_end - rf200_start
+rf300_end - rf300_start
+rf400_end - rf400_start
+
+pred.test100 <- predict(rf100, TEST[,-29])
+pred.test200 <- predict(rf200, TEST[,-29])
+pred.test300 <- predict(rf300, TEST[,-29])
+pred.test400 <- predict(rf400, TEST[,-29])
+
+# Create function to obtain accuracy
+accuracy <- function(x){sum(diag(x)/(sum(rowSums(x)))) * 100}
+
+# Obtain the confusion matrices for predicting the train set using training data
+conf.mat.train100 <- rf100$confusion
+conf.mat.train200 <- rf200$confusion
+conf.mat.train300 <- rf300$confusion
+conf.mat.train400 <- rf400$confusion
+
+# Obtain the confusion matrices for predicting the test set using training data
+conf.mat.test100 <- table(pred.test100, TEST$class)
+conf.mat.test200 <- table(pred.test200, TEST$class)
+conf.mat.test300 <- table(pred.test300, TEST$class)
+conf.mat.test400 <- table(pred.test400, TEST$class)
+```
+
+```{r}
+acc_train <- c(accuracy(conf.mat.train100), accuracy(conf.mat.train200), accuracy(conf.mat.train300), accuracy(conf.mat.train400))
+acc_test <- c(accuracy(conf.mat.test100), accuracy(conf.mat.test200), accuracy(conf.mat.test300), accuracy(conf.mat.test400))
+ntrees <- c(100, 200, 300, 400)
+
+plot(ntrees, acc_train, type = "b", xlab = "# of Trees", ylab = "Accuracy", main = "Accuracy vs Number of Trees", col = "orangered", ylim = c(49, 55))
+lines(ntrees, acc_test, type = "b", col= "steelblue")
+legend(100, 55, legend=c("TRAIN", "TEST"), col=c("orangered", "steelblue"), lty=1:1, cex=0.8)
+```
+
+```{r}
+# Display confusion matrices of the test set
+
+# ntrees = 100
+cl1pred1 <- percent(conf.mat.test100[1,1]/sum(conf.mat.test100[,1]))
+cl1pred2 <- percent(conf.mat.test100[2,1]/sum(conf.mat.test100[,1]))
+cl1pred3 <- percent(conf.mat.test100[3,1]/sum(conf.mat.test100[,1]))
+
+cl2pred2 <- percent(conf.mat.test100[2,2]/sum(conf.mat.test100[,2]))
+cl2pred1 <- percent(conf.mat.test100[1,2]/sum(conf.mat.test100[,2]))
+cl2pred3 <- percent(conf.mat.test100[3,2]/sum(conf.mat.test100[,2]))
+
+cl3pred3 <- percent(conf.mat.test100[3,3]/sum(conf.mat.test100[,3]))
+cl3pred1 <- percent(conf.mat.test100[1,3]/sum(conf.mat.test100[,3]))
+cl3pred2 <- percent(conf.mat.test100[2,3]/sum(conf.mat.test100[,3]))
+
+row1 <- c(cl1pred1, cl2pred1, cl3pred1)
+row2 <- c(cl1pred2, cl2pred2, cl3pred2)
+row3 <- c(cl1pred3, cl2pred3, cl3pred3)
+
+
+conf.matrix.percent.test100 <- rbind(row1, row2, row3)
+rownames(conf.matrix.percent.test100) <- c("Pred: CL1", "Pred: CL2", "Pred: CL3")
+colnames(conf.matrix.percent.test100) <- c("True: CL1", "True: CL2", "True: CL3")
+as.data.frame(conf.matrix.percent.test100)
+
+# ntrees = 200
+cl1pred1 <- percent(conf.mat.test200[1,1]/sum(conf.mat.test200[,1]))
+cl1pred2 <- percent(conf.mat.test200[2,1]/sum(conf.mat.test200[,1]))
+cl1pred3 <- percent(conf.mat.test200[3,1]/sum(conf.mat.test200[,1]))
+
+cl2pred2 <- percent(conf.mat.test200[2,2]/sum(conf.mat.test200[,2]))
+cl2pred1 <- percent(conf.mat.test200[1,2]/sum(conf.mat.test200[,2]))
+cl2pred3 <- percent(conf.mat.test200[3,2]/sum(conf.mat.test200[,2]))
+
+cl3pred3 <- percent(conf.mat.test200[3,3]/sum(conf.mat.test200[,3]))
+cl3pred1 <- percent(conf.mat.test200[1,3]/sum(conf.mat.test200[,3]))
+cl3pred2 <- percent(conf.mat.test200[2,3]/sum(conf.mat.test200[,3]))
+
+row1 <- c(cl1pred1, cl2pred1, cl3pred1)
+row2 <- c(cl1pred2, cl2pred2, cl3pred2)
+row3 <- c(cl1pred3, cl2pred3, cl3pred3)
+
+
+conf.matrix.percent.test200 <- rbind(row1, row2, row3)
+rownames(conf.matrix.percent.test200) <- c("Pred: CL1", "Pred: CL2", "Pred: CL3")
+colnames(conf.matrix.percent.test200) <- c("True: CL1", "True: CL2", "True: CL3")
+as.data.frame(conf.matrix.percent.test200)
+
+# ntrees = 300
+cl1pred1 <- percent(conf.mat.test300[1,1]/sum(conf.mat.test300[,1]))
+cl1pred2 <- percent(conf.mat.test300[2,1]/sum(conf.mat.test300[,1]))
+cl1pred3 <- percent(conf.mat.test300[3,1]/sum(conf.mat.test300[,1]))
+
+cl2pred2 <- percent(conf.mat.test300[2,2]/sum(conf.mat.test300[,2]))
+cl2pred1 <- percent(conf.mat.test300[1,2]/sum(conf.mat.test300[,2]))
+cl2pred3 <- percent(conf.mat.test300[3,2]/sum(conf.mat.test300[,2]))
+
+cl3pred3 <- percent(conf.mat.test300[3,3]/sum(conf.mat.test300[,3]))
+cl3pred1 <- percent(conf.mat.test300[1,3]/sum(conf.mat.test300[,3]))
+cl3pred2 <- percent(conf.mat.test300[2,3]/sum(conf.mat.test300[,3]))
+
+row1 <- c(cl1pred1, cl2pred1, cl3pred1)
+row2 <- c(cl1pred2, cl2pred2, cl3pred2)
+row3 <- c(cl1pred3, cl2pred3, cl3pred3)
+
+
+conf.matrix.percent.test300 <- rbind(row1, row2, row3)
+rownames(conf.matrix.percent.test300) <- c("Pred: CL1", "Pred: CL2", "Pred: CL3")
+colnames(conf.matrix.percent.test300) <- c("True: CL1", "True: CL2", "True: CL3")
+as.data.frame(conf.matrix.percent.test300)
+
+# ntrees = 400
+cl1pred1 <- percent(conf.mat.test400[1,1]/sum(conf.mat.test400[,1]))
+cl1pred2 <- percent(conf.mat.test400[2,1]/sum(conf.mat.test400[,1]))
+cl1pred3 <- percent(conf.mat.test400[3,1]/sum(conf.mat.test400[,1]))
+
+cl2pred2 <- percent(conf.mat.test400[2,2]/sum(conf.mat.test400[,2]))
+cl2pred1 <- percent(conf.mat.test400[1,2]/sum(conf.mat.test400[,2]))
+cl2pred3 <- percent(conf.mat.test400[3,2]/sum(conf.mat.test400[,2]))
+
+cl3pred3 <- percent(conf.mat.test400[3,3]/sum(conf.mat.test400[,3]))
+cl3pred1 <- percent(conf.mat.test400[1,3]/sum(conf.mat.test400[,3]))
+cl3pred2 <- percent(conf.mat.test400[2,3]/sum(conf.mat.test400[,3]))
+
+row1 <- c(cl1pred1, cl2pred1, cl3pred1)
+row2 <- c(cl1pred2, cl2pred2, cl3pred2)
+row3 <- c(cl1pred3, cl2pred3, cl3pred3)
+
+
+conf.matrix.percent.test400 <- rbind(row1, row2, row3)
+rownames(conf.matrix.percent.test400) <- c("Pred: CL1", "Pred: CL2", "Pred: CL3")
+colnames(conf.matrix.percent.test400) <- c("True: CL1", "True: CL2", "True: CL3")
+as.data.frame(conf.matrix.percent.test400)
+```
+
+### Q6
+```{r}
+diag1 <- c(conf.mat.test100[1,1]/sum(conf.mat.test100[,1]), conf.mat.test200[1,1]/sum(conf.mat.test200[,1]), conf.mat.test300[1,1]/sum(conf.mat.test300[,1]), conf.mat.test400[1,1]/sum(conf.mat.test400[,1]))
+diag2 <- c(conf.mat.test100[2,2]/sum(conf.mat.test100[,2]), conf.mat.test200[2,2]/sum(conf.mat.test200[,2]), conf.mat.test300[2,2]/sum(conf.mat.test300[,2]), conf.mat.test400[2,2]/sum(conf.mat.test400[,2]))
+diag3 <- c(conf.mat.test100[3,3]/sum(conf.mat.test100[,3]), conf.mat.test200[3,3]/sum(conf.mat.test200[,3]), conf.mat.test300[3,3]/sum(conf.mat.test300[,3]), conf.mat.test400[3,3]/sum(conf.mat.test400[,3]))
+
+
+plot(ntrees, diag1, type = "b", ylim = range(c(diag1, diag2,diag3)), col = "orangered", xlab = "# of Trees", ylab = "Diagonal Conf. Mat. Coeff.", main = "Diagonals of Conf. Mat. vs Number of Trees")
+lines(ntrees, diag2, type = "b", col = "steelblue")
+lines(ntrees, diag3, type="b", col = "springgreen")
+legend("right", c("Position [1,1]", "Position [2,2]", "Position [3,3]"), fill = c("orangered", "steelblue", "springgreen"))
+```
+Position[3,3] (class3) consistently performs the best out of the three diagonals. Class3 has the most observations within TRAIN and therefore the model had more information to train off of. However, the difference in observations between class3, the largest class, and class2, the smallest class, is only 65 observations while the difference in accurate classification of the two is around 10%. If this trend held true then any extra observations that could be added might have significant results on the model's performance.
+
+The best ntrees BNT is 200. The performance from position[1,1] and position[2,2] decreases on the way from ntrees = 200 to 300 while position[3,3] decreases. These changes are minimal as are the changes to ntrees = 400. Therefore ntrees = 200 is selected as the best since there is not a large difference in accuracy but it is the simpler model than those with larger ntrees.
+
+From referencing the confusion matrices we can see a similar trend in classification accuracy for class3. When the true class is class1, class3 is incorrectly predicted less than class2 is. The same holds true when looking at predictions of class2. When the true class is class2, class3 is incorrectly predicted less frequently than class1.
+
+
+### Q7
+```{r}
+# Display feature importances of bestRF (rf200)
+
+imp <- as.data.frame(importance(rf200, type = 2))
+imp <- data.frame(Features = rownames(imp), Importance = round(imp$MeanDecreaseGini,2))
+imp[order(imp$Importance,decreasing = TRUE),]
+```
+
+### Q8
+
+```{r}
+# Display histogram of most important feature Z (BFP) within each class
+hist(data$BFP[data$class == 1], main = "BFP within class1", xlab = "BFP")
+hist(data$BFP[data$class == 2], main = "BFP within class2", xlab = "BFP")
+hist(data$BFP[data$class == 3], main = "BFP within class3", xlab = "BFP")
+```
+
+
+```{r}
+ks.test(data$BFP[data$class==1], data$BFP[data$class==2])
+ks.test(data$BFP[data$class==1], data$BFP[data$class==3])
+ks.test(data$BFP[data$class==2], data$BFP[data$class==3])
+```
+
+BFP represents the amount of batters faced by a pitcher. This is directly related to pitching experience and therefore makes sense that it would be important in determining a pitcher's salary. From looking at the histograms it is difficult to notice a difference between class1 and class2. However, class3 has noticably more cases within the higher BFP values (specifically greater than 500) than class1 or class2. 
+
+The KS test to compare the histograms confirms the variables importance. The comparison of BFP within class1 and class2 received a p-value (P<.001). The comparisons between class1 and class3 as well as class2 and class3 each contained p-values of (P<.001) as well. It should be noted however that the p-value for both comparisons involving class3 were much smaller (P<2.2e-16) than the already small p-value for the comparison of class1 and class2 (P=1.783e-05).
+
+```{r}
+# Display histogram of least important feature (SHO) within each class
+hist(data$SHO[data$class == 1], breaks = c(0,1,2,3,4,5,6), labels = TRUE, main = "SHO within class1", xlab = "SHO")
+hist(data$SHO[data$class == 2], breaks = c(0,1,2,3,4,5,6), labels = TRUE, main = "SHO within class2", xlab = "SHO")
+hist(data$SHO[data$class == 3], breaks = c(0,1,2,3,4,5,6), labels = TRUE, main = "SHO within class3", xlab = "SHO")
+```
+
+
+
+```{r}
+ks.test(data$SHO[data$class==1], data$SHO[data$class==2])
+ks.test(data$SHO[data$class==1], data$SHO[data$class==3])
+ks.test(data$SHO[data$class==2], data$SHO[data$class==3])
+```
+
+SHO represents the amount of shutouts that a pitcher has earned. This would seem like an important statistic for determining the prowess of a pitcher and therefore how much they should be earning. However, the nature of shutouts makes it a hard tool to use. They are extremely rare and the maximum amount recorded within our data set is 6. From looking at the histograms there is a slight difference in the distributions as pitchers of class2 and then class3 obtain more shutouts than those within the previous class. The difference between class1 and class2 is only five more pitchers that have earned at least one shutout and is pretty insignificant. Class3 shows the most difference among the three with a higher prevalence of at least one shutout than the other two classes (though they are still extremely rare). Class3 contains 103 pitchers with one or more shutouts while class2 contains 22 and class1 contains 17.
+
+The KS test reveals similar findings to what was seen within the histograms. Class1 and class2 are deemed not significantly different with a p-value of P(=.9995). However, the comparison of class1 and class3 as well as class2 and class3 obtained a significant p-value less than .001 (P=4.408e-09 and 3.549e-11, respectively).
+
+
+### Q9
+Cluster #8 had the lowest gini
+
+```{r}
+# Obtain data from cluster 8
+CLj = SDATA[which(k8$cluster == 8),]
+CLjnonSDATA = data[which(k8$cluster == 8),]
+CLj$class = CLjnonSDATA$class
+
+# Create train/test samples from CLj
+set.seed(42)
+trainCLj.index <- sample(1:nrow(CLj), 0.8 * nrow(CLj))
+testCLj.index <- setdiff(1:nrow(CLj), trainCLj.index)
+trainCLj <- CLj[trainCLj.index,]
+testCLj <- CLj[testCLj.index,]
+train.labels.CLj <- class_vec[trainCLj.index]
+test.labels.CLj <- class_vec[testCLj.index]
+```
+
+```{r}
+# Check class balance in the train set
+nrow(trainCLj[trainCLj['class'] == 1,])
+nrow(trainCLj[trainCLj['class'] == 2,])
+nrow(trainCLj[trainCLj['class'] == 3,])
+
+# There are far more cases of class 3 than class 1 and 2 so we will use cloning to make them even
+# There are only 15% as many cases of class 1 as class 3 so we will duplicate class 1 by 6
+trainCLj.class1 <- trainCLj[trainCLj['class'] == 1,]
+trainCLj.class1_copy1 <- as.data.frame(trainCLj.class1)
+trainCLj.class1_copy2 <- as.data.frame(trainCLj.class1)
+trainCLj.class1_copy3 <- as.data.frame(trainCLj.class1)
+trainCLj.class1_copy4 <- as.data.frame(trainCLj.class1)
+trainCLj.class1_copy5 <- as.data.frame(trainCLj.class1)
+trainCLj.class1_copy6 <- as.data.frame(trainCLj.class1)
+
+# There are only 26% as many cases of class 2 as class 3 so we will duplicate class 2 by 3
+trainCLj.class2 <- trainCLj[trainCLj['class'] == 2,]
+trainCLj.class2_copy1 <- as.data.frame(trainCLj.class2)
+trainCLj.class2_copy2 <- as.data.frame(trainCLj.class2)
+trainCLj.class2_copy3 <- as.data.frame(trainCLj.class2)
+
+```
+
+```{r}
+# Create clones of class1 from the training set with small perturbations
+for (i in 1:17) {
+  perturb = 1 + (runif(1) - 0.5)/10000
+  trainCLj.class1_copy1[i,-29] <- trainCLj.class1_copy1[i,-29]*perturb
+}
+for (i in 1:17) {
+  perturb = 1 + (runif(1) - 0.5)/10000
+  trainCLj.class1_copy2[i,-29] <- trainCLj.class1_copy2[i,-29]*perturb
+}
+for (i in 1:17) {
+  perturb = 1 + (runif(1) - 0.5)/10000
+  trainCLj.class1_copy3[i,-29] <- trainCLj.class1_copy3[i,-29]*perturb
+}
+for (i in 1:17) {
+  perturb = 1 + (runif(1) - 0.5)/10000
+  trainCLj.class1_copy4[i,-29] <- trainCLj.class1_copy4[i,-29]*perturb
+}
+for (i in 1:17) {
+  perturb = 1 + (runif(1) - 0.5)/10000
+  trainCLj.class1_copy5[i,-29] <- trainCLj.class1_copy5[i,-29]*perturb
+}
+for (i in 1:17) {
+  perturb = 1 + (runif(1) - 0.5)/10000
+  trainCLj.class1_copy6[i,-29] <- trainCLj.class1_copy6[i,-29]*perturb
+}
+
+# Combine the new clones with the original class1 observations
+newtrainCLj.class1 <- rbind(trainCLj.class1,trainCLj.class1_copy1, trainCLj.class1_copy2, trainCLj.class1_copy3, trainCLj.class1_copy4, trainCLj.class1_copy5, trainCLj.class1_copy6)
+
+# Create clones of class2 from the training set with small perturbations
+for (i in 1:28) {
+  perturb = 1 + (runif(1) - 0.5)/10000
+  trainCLj.class2_copy1[i,-29] <- trainCLj.class2_copy1[i,-29]*perturb
+}
+for (i in 1:28) {
+  perturb = 1 + (runif(1) - 0.5)/10000
+  trainCLj.class2_copy2[i,-29] <- trainCLj.class2_copy2[i,-29]*perturb
+}
+for (i in 1:28) {
+  perturb = 1 + (runif(1) - 0.5)/10000
+  trainCLj.class2_copy3[i,-29] <- trainCLj.class2_copy3[i,-29]*perturb
+}
+
+
+# Combine the new clones with the original class2 observations
+newtrainCLj.class2 <- rbind(trainCLj.class2,trainCLj.class2_copy1, trainCLj.class2_copy2, trainCLj.class2_copy3)
+
+newTRAIN <- rbind(newtrainCLj.class1, newtrainCLj.class2, trainCLj[trainCLj['class'] == 3,])
+
+nrow(newTRAIN[newTRAIN['class'] == 1,])
+nrow(newTRAIN[newTRAIN['class'] == 2,])
+nrow(newTRAIN[newTRAIN['class'] == 3,])
+```
+There are now 119 class1 observations, 112 class2, and still 130 class3.
+
+The same process will be repeated for the test set.
+
+```{r}
+# Check class balance in the test set
+nrow(testCLj[testCLj['class'] == 1,])
+nrow(testCLj[testCLj['class'] == 2,])
+nrow(testCLj[testCLj['class'] == 3,])
+
+# There are still more cases of class 3 than class 1 and 2 so we will use cloning to make them more even
+# There are only 10 class1 cases to the 27 class3 cases so we will triple the size of class1
+testCLj.class1 <- testCLj[testCLj['class'] == 1,]
+testCLj.class1_copy1 <- as.data.frame(testCLj.class1)
+testCLj.class1_copy2 <- as.data.frame(testCLj.class1)
+
+# There are only 7 cases of class2 so we will clone it 3 times
+testCLj.class2 <- testCLj[testCLj['class'] == 2,]
+testCLj.class2_copy1 <- as.data.frame(testCLj.class2)
+testCLj.class2_copy2 <- as.data.frame(testCLj.class2)
+testCLj.class2_copy3 <- as.data.frame(testCLj.class2)
+
+```
+
+```{r}
+# Create clones of class1 from the test set with small perturbations
+for (i in 1:10) {
+  perturb = 1 + (runif(1) - 0.5)/10000
+  testCLj.class1_copy1[i,-29] <- testCLj.class1_copy1[i,-29]*perturb
+}
+for (i in 1:10) {
+  perturb = 1 + (runif(1) - 0.5)/10000
+  testCLj.class1_copy2[i,-29] <- testCLj.class1_copy2[i,-29]*perturb
+}
+
+# Combine the new clones with the original class1 observations
+newtestCLj.class1 <- rbind(testCLj.class1,testCLj.class1_copy1, testCLj.class1_copy2)
+
+# Create clones of class1 from the test set with small perturbations
+for (i in 1:7) {
+  perturb = 1 + (runif(1) - 0.5)/10000
+  testCLj.class2_copy1[i,-29] <- testCLj.class2_copy1[i,-29]*perturb
+}
+for (i in 1:7) {
+  perturb = 1 + (runif(1) - 0.5)/10000
+  testCLj.class2_copy2[i,-29] <- testCLj.class2_copy2[i,-29]*perturb
+}
+for (i in 1:7) {
+  perturb = 1 + (runif(1) - 0.5)/10000
+  testCLj.class2_copy3[i,-29] <- testCLj.class2_copy3[i,-29]*perturb
+}
+
+
+# Combine the new clones with the original class1 observations
+newtestCLj.class2 <- rbind(testCLj.class2,testCLj.class2_copy1, testCLj.class2_copy2, testCLj.class2_copy3)
+
+newTEST <- rbind(newtestCLj.class1, newtestCLj.class2, testCLj[testCLj['class'] == 3,])
+
+nrow(newTEST[newTEST['class'] == 1,])
+nrow(newTEST[newTEST['class'] == 2,])
+nrow(newTEST[newTEST['class'] == 3,])
+```
+
+There are now 30 class1 observations, 28 class2, and still 27 class3.
+
+```{r}
+rf.cluster8_start <- Sys.time()
+rf.cluster8 <- randomForest(newTRAIN[,-29], y=newTRAIN$class, ntry=5, ntrees = 200 )
+rf.cluster8_end <- Sys.time()
+rf.cluster8_end - rf.cluster8_start
+pred.rf.cluster8 <- predict(rf.cluster8, newTEST[,-29])
+```
+
+### Q10
+```{r}
+conf.mat.train.cluster8 <- rf.cluster8$confusion
+conf.mat.test.cluster8 <- table(pred.rf.cluster8, newTEST$class)
+
+conf.mat.test.cluster8
+
+accuracy(conf.mat.train.cluster8)
+accuracy(conf.mat.test.cluster8)
+```
+There appears there would be an advantage to training separate rf's.
+
+```{r}
+# Train set nice conf matrix
+library(scales)
+cl1pred1 <- percent(conf.mat.train.cluster8[1,1]/sum(conf.mat.train.cluster8[,1]))
+cl1pred2 <- percent(conf.mat.train.cluster8[2,1]/sum(conf.mat.train.cluster8[,1]))
+cl1pred3 <- percent(conf.mat.train.cluster8[3,1]/sum(conf.mat.train.cluster8[,1]))
+
+cl2pred2 <- percent(conf.mat.train.cluster8[2,2]/sum(conf.mat.train.cluster8[,2]))
+cl2pred1 <- percent(conf.mat.train.cluster8[1,2]/sum(conf.mat.train.cluster8[,2]))
+cl2pred3 <- percent(conf.mat.train.cluster8[3,2]/sum(conf.mat.train.cluster8[,2]))
+
+cl3pred3 <- percent(conf.mat.train.cluster8[3,3]/sum(conf.mat.train.cluster8[,3]))
+cl3pred1 <- percent(conf.mat.train.cluster8[1,3]/sum(conf.mat.train.cluster8[,3]))
+cl3pred2 <- percent(conf.mat.train.cluster8[2,3]/sum(conf.mat.train.cluster8[,3]))
+
+row1 <- c(cl1pred1, cl2pred1, cl3pred1)
+row2 <- c(cl1pred2, cl2pred2, cl3pred2)
+row3 <- c(cl1pred3, cl2pred3, cl3pred3)
+
+
+conf.matrix.percent.train.cluster8 <- rbind(row1, row2, row3)
+rownames(conf.matrix.percent.train.cluster8) <- c("Pred: CL1", "Pred: CL2", "Pred: CL3")
+colnames(conf.matrix.percent.train.cluster8) <- c("True: CL1", "True: CL2", "True: CL3")
+as.data.frame(conf.matrix.percent.train.cluster8)
+```
+
+```{r}
+# Test set nice conf matrix
+library(scales)
+cl1pred1 <- percent(conf.mat.test.cluster8[1,1]/sum(conf.mat.test.cluster8[,1]))
+cl1pred2 <- percent(conf.mat.test.cluster8[2,1]/sum(conf.mat.test.cluster8[,1]))
+cl1pred3 <- percent(conf.mat.test.cluster8[3,1]/sum(conf.mat.test.cluster8[,1]))
+
+cl2pred2 <- percent(conf.mat.test.cluster8[2,2]/sum(conf.mat.test.cluster8[,2]))
+cl2pred1 <- percent(conf.mat.test.cluster8[1,2]/sum(conf.mat.test.cluster8[,2]))
+cl2pred3 <- percent(conf.mat.test.cluster8[3,2]/sum(conf.mat.test.cluster8[,2]))
+
+cl3pred3 <- percent(conf.mat.test.cluster8[3,3]/sum(conf.mat.test.cluster8[,3]))
+cl3pred1 <- percent(conf.mat.test.cluster8[1,3]/sum(conf.mat.test.cluster8[,3]))
+cl3pred2 <- percent(conf.mat.test.cluster8[2,3]/sum(conf.mat.test.cluster8[,3]))
+
+row1 <- c(cl1pred1, cl2pred1, cl3pred1)
+row2 <- c(cl1pred2, cl2pred2, cl3pred2)
+row3 <- c(cl1pred3, cl2pred3, cl3pred3)
+
+
+conf.matrix.percent.test.cluster8 <- rbind(row1, row2, row3)
+rownames(conf.matrix.percent.test.cluster8) <- c("Pred: CL1", "Pred: CL2", "Pred: CL3")
+colnames(conf.matrix.percent.test.cluster8) <- c("True: CL1", "True: CL2", "True: CL3")
+as.data.frame(conf.matrix.percent.test.cluster8)
+```
+
+
+
+### Q11
+```{r}
+library(e1071)
+# Create train/test samples from for class1 and class3
+newTRAsvm <- rbind(trainCL1, trainCL3)
+newTESTsvm <- rbind(testCL1, testCL3)
+
+svm_start <- Sys.time()
+svm_model <- svm(newTRAsvm[,-29], newTRAsvm$class)
+svm_end <- Sys.time()
+pred_svm <- predict(svm_model, newTESTsvm[,-29])
+svm_end - svm_start
+
+conf.mat.svm.train <- table(svm_model$fitted, newTRAsvm$class)
+conf.mat.svm.test <- table(pred_svm, newTESTsvm$class)
+
+accuracy(conf.mat.svm.train)
+accuracy(conf.mat.svm.test)
+```
+
+
+```{r}
+cl1pred1 <- percent(conf.mat.svm.train[1,1]/sum(conf.mat.svm.train[,1]))
+cl1pred3 <- percent(conf.mat.svm.train[3,1]/sum(conf.mat.svm.train[,1]))
+
+cl3pred3 <- percent(conf.mat.svm.train[3,3]/sum(conf.mat.svm.train[,3]))
+cl3pred1 <- percent(conf.mat.svm.train[1,3]/sum(conf.mat.svm.train[,3]))
+
+row1 <- c(cl1pred1, cl3pred1)
+row3 <- c(cl1pred3, cl3pred3)
+
+
+conf.matrix.percent.svm.train <- rbind(row1, row3)
+rownames(conf.matrix.percent.svm.train) <- c("Pred: CL1", "Pred: CL3")
+colnames(conf.matrix.percent.svm.train) <- c("True: CL1", "True: CL3")
+as.data.frame(conf.matrix.percent.svm.train)
+```
+
+
+
+```{r}
+library(scales)
+cl1pred1 <- percent(conf.mat.svm.test[1,1]/sum(conf.mat.svm.test[,1]))
+cl1pred3 <- percent(conf.mat.svm.test[3,1]/sum(conf.mat.svm.test[,1]))
+
+cl3pred3 <- percent(conf.mat.svm.test[3,3]/sum(conf.mat.svm.test[,3]))
+cl3pred1 <- percent(conf.mat.svm.test[1,3]/sum(conf.mat.svm.test[,3]))
+
+row1 <- c(cl1pred1, cl3pred1)
+row3 <- c(cl1pred3, cl3pred3)
+
+
+conf.matrix.percent.svm.test <- rbind(row1, row3)
+rownames(conf.matrix.percent.svm.test) <- c("Pred: CL1", "Pred: CL3")
+colnames(conf.matrix.percent.svm.test) <- c("True: CL1", "True: CL3")
+as.data.frame(conf.matrix.percent.svm.test)
+```
+
+```{r}
+write.csv(data,"C:\\Users\\Melinda B\\Documents\\College\\Graduate\\6350 - Azencott\\Final\\csv's\\data.csv")
+write.csv(TRAIN,"C:\\Users\\Melinda B\\Documents\\College\\Graduate\\6350 - Azencott\\Final\\csv's\\TRAIN.csv")
+write.csv(TEST, "C:\\Users\\Melinda B\\Documents\\College\\Graduate\\6350 - Azencott\\Final\\csv's\\TEST.csv")
+write.csv(newTRAsvm, "C:\\Users\\Melinda B\\Documents\\College\\Graduate\\6350 - Azencott\\Final\\csv's\\newTRAsvm.csv")
+write.csv(newTESTsvm, "C:\\Users\\Melinda B\\Documents\\College\\Graduate\\6350 - Azencott\\Final\\csv's\\newTESTsvm.csv")
+write.csv(SDATA.eig$vectors,  "C:\\Users\\Melinda B\\Documents\\College\\Graduate\\6350 - Azencott\\Final\\csv's\\Eigenvectors_MLB.csv")
+write.csv(SDATA.eig$values,  "C:\\Users\\Melinda B\\Documents\\College\\Graduate\\6350 - Azencott\\Final\\csv's\\Eigenvalues_MLB.csv")
+write.csv(SDATA.cor,  "C:\\Users\\Melinda B\\Documents\\College\\Graduate\\6350 - Azencott\\Final\\csv's\\CORR_MLB.csv")
+```
+
+
+
+
+
+
+
+
+
+
